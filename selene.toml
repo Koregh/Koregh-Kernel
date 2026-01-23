@@ -1,0 +1,5 @@
+std = "roblox"
+
+[rules]
+# Aqui você pode desativar regras que te irritam
+unused_variable = "allow"

@@ -1,0 +1,7 @@
+{
+    "languageMode": "strict",
+    "moduleAliases": {
+        "Core": "src/shared/kernel/Core",
+        "Shared": "src/shared"
+    }
+}
