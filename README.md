@@ -1,6 +1,6 @@
-# Kernel 
+# Koregh Kernel 
 
-O **Kernel** é um framework modular focado em **comunicação binária**, **segurança de dados** e **gerenciamento de ciclo de vida**.  
+O **Koregh Kernel** é um framework modular focado em **comunicação binária**, **segurança de dados** e **gerenciamento de ciclo de vida**.  
 Ele foi projetado para **reduzir overhead de rede**, **isolar falhas de sistema** e **proteger o servidor contra abusos comuns** em jogos multiplayer de média e larga escala.
 
 > [!NOTE]
@@ -8,7 +8,7 @@ Ele foi projetado para **reduzir overhead de rede**, **isolar falhas de sistema*
 
 ---
 
-## 🎯 Objetivos do Projeto
+## Objetivos do Projeto
 
 - Reduzir tráfego de rede via serialização binária
 - Garantir validação e sanitização de dados no servidor
@@ -27,7 +27,7 @@ O framework é dividido em **serviços core**, cada um com responsabilidade bem 
 
 ---
 
-## 1️⃣ NetworkKernel (Camada de Rede)
+## NetworkKernel (Camada de Rede)
 
 O `NetworkKernel` substitui o uso direto de `RemoteEvent` e `RemoteFunction` por uma camada controlada e otimizada.
 
@@ -54,7 +54,7 @@ O `NetworkKernel` substitui o uso direto de `RemoteEvent` e `RemoteFunction` por
 
 ---
 
-## 2️⃣ Lifecycle Management (Core)
+## 2️Lifecycle Management (Core)
 
 O Kernel utiliza um **ciclo de vida previsível** para inicialização e execução dos sistemas.
 
@@ -79,7 +79,7 @@ O Kernel utiliza um **ciclo de vida previsível** para inicialização e execuç
 
 ---
 
-## 3️⃣ Input System
+## 3️Input System
 
 O `InputController` abstrai teclas físicas para **ações semânticas**.
 

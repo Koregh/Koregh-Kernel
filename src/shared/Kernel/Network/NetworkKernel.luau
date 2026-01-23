@@ -13,19 +13,19 @@ local Promise = require(Utils.Promise)
 
 local NetworkKernel = {}
 local _channels = {}
+local _middlewares = {}
 local _gateway: RemoteEvent
 local Logger: any = nil
 
+local _outboundQueue: {{any}} = {} 
 local _pendingRequests = {}
 local _requestIdCounter = 0
 
--- Configurações de Segurança Sênior
-local MAX_BUFFER_SIZE = 16384 -- 16KB (Proteção contra estouro de memória)
-local MAX_STRING_LEN = 1024   -- Limite para strings enviadas
-local RATE_LIMIT_PER_SEC = 20 -- Máximo de pacotes por segundo por jogador
-local _playerRateLimits = {}  -- { [Player]: { LastReset: number, Count: number } }
+local MAX_BUFFER_SIZE = 16384 
+local MAX_STRING_LEN = 1024   
+local RATE_LIMIT_PER_SEC = 25 
+local _playerRateLimits: {[Player]: {LastReset: number, Count: number}} = {}  
 
--- 🛡️ Sanitização: Neutraliza valores perigosos (NaN, Infinito, Strings Gigantes)
 local function sanitize(val: any): any
 	local t = typeof(val)
 	if t == "number" then
@@ -41,12 +41,10 @@ end
 local function isRateLimited(player: Player): boolean
 	local now = os.clock()
 	local data = _playerRateLimits[player]
-	
 	if not data or (now - data.LastReset) >= 1 then
 		_playerRateLimits[player] = { LastReset = now, Count = 1 }
 		return false
 	end
-	
 	data.Count += 1
 	return data.Count > RATE_LIMIT_PER_SEC
 end
@@ -55,35 +53,47 @@ function NetworkKernel._setLogger(newLogger: any)
 	Logger = newLogger
 end
 
+function NetworkKernel.AddMiddleware(fn: (player: Player?, channel: string, args: {any}) -> boolean)
+	table.insert(_middlewares, fn)
+end
+
 function NetworkKernel.Init()
 	if RunService:IsServer() then
 		_gateway = ReplicatedStorage:FindFirstChild("Gateway") or Instance.new("RemoteEvent")
 		_gateway.Name = "Gateway"
 		_gateway.Parent = ReplicatedStorage
 		
-		_gateway.OnServerEvent:Connect(function(player: Player, channelName: string, payload: any)
-			if isRateLimited(player) then
-				if Logger then Logger.warn("Security", `Player {player.Name} atingiu Rate Limit!`) end
-				return 
+		_gateway.OnServerEvent:Connect(function(player: Player, batch: any)
+			if typeof(batch) ~= "table" then return end
+			if isRateLimited(player) then return end
+			
+			for _, packet in ipairs(batch) do
+				if typeof(packet) == "table" and packet[1] and packet[2] then
+					NetworkKernel._onEvent(player, packet[1], packet[2])
+				end
 			end
-			NetworkKernel._onEvent(player, channelName, payload)
 		end)
 
-		game.Players.PlayerRemoving:Connect(function(player) _playerRateLimits[player] = nil end)
+		game.Players.PlayerRemoving:Connect(function(p) _playerRateLimits[p] = nil end)
 
 		NetworkKernel.RegisterChannel("__INVOKE__", function(player: Player, internalChannel: string, id: number, ...: any)
-			local targetChannel = _channels[internalChannel]
-			if targetChannel then
+			local target = _channels[internalChannel]
+			if target then
 				ThreadManager.Spawn(`Invoke_{internalChannel}`, function(p, rid, ...)
-					local results = {targetChannel.Callback(p, ...)}
-					NetworkKernel.FireClient(p, "__RESPONSE__", rid, unpack(results))
+					local res = {target.Callback(p, ...)}
+					NetworkKernel.FireClient(p, "__RESPONSE__", rid, unpack(res))
 				end, player, id, ...)
 			end
 		end)
 	else
 		_gateway = ReplicatedStorage:WaitForChild("Gateway") :: RemoteEvent
-		_gateway.OnClientEvent:Connect(function(channelName, payload)
-			NetworkKernel._onEvent(nil, channelName, payload)
+		_gateway.OnClientEvent:Connect(function(batch: any)
+			if typeof(batch) ~= "table" then return end
+			for _, packet in ipairs(batch) do
+				if typeof(packet) == "table" and packet[1] and packet[2] then
+					NetworkKernel._onEvent(nil, packet[1], packet[2])
+				end
+			end
 		end)
 
 		NetworkKernel.RegisterChannel("__RESPONSE__", function(id: number, ...: any)
@@ -91,8 +101,16 @@ function NetworkKernel.Init()
 			if signal then signal:Fire(...) end
 		end)
 	end
-	
-	if Logger then Logger.info("Network", "Kernel de Rede Blindado Inicializado.") end
+
+	RunService.Heartbeat:Connect(function()
+		if #_outboundQueue == 0 then return end
+		
+		if not RunService:IsServer() then
+			_gateway:FireServer(_outboundQueue)
+		end
+		
+		table.clear(_outboundQueue)
+	end)
 end
 
 function NetworkKernel.RegisterChannel(name: string, callback: (...any) -> (), schema: Guard.Schema?)
@@ -103,16 +121,14 @@ function NetworkKernel.Pack(...: any): buffer
 	local args = {...}
 	local temp = buffer.create(1024) 
 	local cursor = 0
-	
 	for _, v in ipairs(args) do
-		local safeValue = sanitize(v) 
-		local id = Validator.NamesToIds[typeof(safeValue)] or 12 
+		local safe = sanitize(v) 
+		local id = Validator.NamesToIds[typeof(safe)] or 12 
 		buffer.writeu8(temp, cursor, id)
 		cursor += 1
 		local cfg = Validator.TypeIds[id]
-		if cfg and cfg.Write then cursor += cfg.Write(temp, cursor, safeValue) end
+		if cfg and cfg.Write then cursor += cfg.Write(temp, cursor, safe) end
 	end
-	
 	local final = buffer.create(cursor)
 	buffer.copy(final, 0, temp, 0, cursor)
 	return final
@@ -134,61 +150,59 @@ function NetworkKernel.Unpack(b: buffer): {any}
 end
 
 function NetworkKernel._onEvent(player: Player?, channelName: string, payload: any)
-	if typeof(payload) == "buffer" and buffer.len(payload) > MAX_BUFFER_SIZE then
-		if Logger then Logger.error("Security", `Buffer gigante de {player}: {buffer.len(payload)} bytes`) end
-		return 
-	end
-
 	local channel = _channels[channelName]
 	if not channel then return end
 
 	local args = typeof(payload) == "buffer" and NetworkKernel.Unpack(payload) or {sanitize(payload)}
+
+	for _, middleware in ipairs(_middlewares) do
+		local ok, result = pcall(middleware, player, channelName, args)
+		if not ok or result == false then return end
+	end
 
 	if channel.Schema then
 		local ok, err = Guard.Check(args, channel.Schema)
 		if not ok then return end
 	end
 
+	local threadName = `Net_{channelName}`
 	if RunService:IsServer() then
-		ThreadManager.Spawn(`Net_{channelName}`, channel.Callback, player, unpack(args))
+		ThreadManager.Spawn(threadName, channel.Callback, player, unpack(args))
 	else
-		ThreadManager.Spawn(`Net_{channelName}`, channel.Callback, unpack(args))
+		ThreadManager.Spawn(threadName, channel.Callback, unpack(args))
 	end
 end
 
 function NetworkKernel.Send(channelName: string, ...: any)
-	if not _gateway then return end
-	_gateway:FireServer(channelName, NetworkKernel.Pack(...))
+	table.insert(_outboundQueue, {channelName, NetworkKernel.Pack(...)})
 end
 
 function NetworkKernel.Invoke(channelName: string, ...: any): ...any
 	_requestIdCounter += 1
 	local id = _requestIdCounter
-	local responseSignal = Signal.new()
-	_pendingRequests[id] = responseSignal
+	local signal = Signal.new()
+	_pendingRequests[id] = signal
 	
 	NetworkKernel.Send("__INVOKE__", channelName, id, ...)
 	
-	local result = {responseSignal:Wait(10)}
+	local res = {signal:Wait(10)}
 	_pendingRequests[id] = nil
-	return unpack(result)
+	return unpack(res)
 end
 
 function NetworkKernel.Async(channelName: string, ...: any)
-	return Promise.new(function(resolve, reject)
-		local results = {NetworkKernel.Invoke(channelName, ...)}
-		if #results > 0 then resolve(unpack(results)) else reject("Timeout") end
+	return Promise.new(function(res, rej)
+		local data = {NetworkKernel.Invoke(channelName, ...)}
+		if #data > 0 then res(unpack(data)) else rej("Timeout") end
 	end)
 end
 
 function NetworkKernel.FireClient(player: Player, channelName: string, ...: any)
-	if not _gateway then return end
-	_gateway:FireClient(player, channelName, NetworkKernel.Pack(...))
+	_gateway:FireClient(player, {{channelName, NetworkKernel.Pack(...)}})
 end
 
 function NetworkKernel.FireAll(channelName: string, ...: any)
-	if not _gateway then return end
-	_gateway:FireAllClients(channelName, NetworkKernel.Pack(...))
+	_gateway:FireAllClients({{channelName, NetworkKernel.Pack(...)}})
 end
 
 return NetworkKernel
