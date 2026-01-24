@@ -111,7 +111,12 @@ function Promise.all(promises: {any})
 end
 
 function Promise.resolve(...: any)
-	return Promise.new(function(resolve) resolve(...) end)
+    local args = {...}
+    local count = select("#", ...)
+    
+    return Promise.new(function(resolve)
+        resolve(unpack(args, 1, count))
+    end)
 end
 
 return Promise
