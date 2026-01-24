@@ -25,8 +25,7 @@ local Config = {
 			Active = {},
 			Completed = {},
 			DailyResetTime = 0,
-		},
-		UserIds = {}, 
+		}, 
 	},
 	SESSION_LOCK_TIMEOUT = 1200,
 	

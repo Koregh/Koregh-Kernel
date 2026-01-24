@@ -9,7 +9,6 @@ local ValueMirror = require(script.ValueMirror)
 
 local DataSystem = {}
 
--- [SINGLETON FIX]: Garante que todos os módulos usem a mesma tabela na memória RAM
 if not shared._DataSystemProfiles then
     shared._DataSystemProfiles = {}
 end
@@ -35,7 +34,6 @@ local function OnPlayerAdded(player: Player)
         local profile = ProfileClass.new(player, result)
         profile:Reconcile(Config.TEMPLATE)
         
-        -- Salva na tabela compartilhada por UserId
         DataSystem.Profiles[userId] = profile
 
         if Config.DEBUG_MODE then
@@ -52,7 +50,6 @@ local function OnPlayerAdded(player: Player)
     end
 end
 
--- [LIFECYCLE]
 function DataSystem:OnStart()
 
     game.Players.PlayerAdded:Connect(OnPlayerAdded)
@@ -70,7 +67,6 @@ function DataSystem:OnStart()
     end)
 end
 
--- [API DE BUSCA]
 function DataSystem:GetProfile(player: Player)
 
     Logger.info("DataSystem", "Aguardando perfil do jogador versão " .. tostring(DataSystem.Version))
@@ -85,9 +81,7 @@ function DataSystem:GetProfile(player: Player)
     return DataSystem.Profiles[id]
 end
 
--- [API DE MANIPULAÇÃO]
 
--- Pega um valor específico via path (ex: "Economy.Gold")
 function DataSystem:Get(player: Player, path: string): any
     local profile = self:GetProfile(player)
     if not profile then return nil end
@@ -101,7 +95,6 @@ function DataSystem:Get(player: Player, path: string): any
     return current
 end
 
--- Define um valor direto
 function DataSystem:Set(player: Player, path: string, value: any)
     local profile = self:GetProfile(player)
     if not profile then return end
@@ -116,19 +109,81 @@ function DataSystem:Set(player: Player, path: string, value: any)
     self:_processChange(player, path, value)
 end
 
--- Incrementa um valor (Soma)
 function DataSystem:Increment(player: Player, path: string, amount: number)
     local currentVal = self:Get(player, path) or 0
     self:Set(player, path, currentVal + amount)
 end
 
--- Subtrai um valor (Decrementa)
 function DataSystem:Decrement(player: Player, path: string, amount: number)
     local currentVal = self:Get(player, path) or 0
     self:Set(player, path, currentVal - amount)
 end
 
--- [SISTEMA INTERNO]
+function DataSystem:ListAdd(player: Player, path: string, value: any)
+    local list = self:Get(player, path)
+    
+    if list and type(list) == "table" then
+        table.insert(list, value)
+        self:_processChange(player, path, list)
+    else
+        Logger.error("DataSystem", `Caminho {path} não é uma lista válida para {player.Name}`)
+    end
+end
+
+function DataSystem:ListRemove(player: Player, path: string, key: string, targetValue: any)
+    local list = self:Get(player, path)
+    if not list or type(list) ~= "table" then return end
+
+    local foundIndex = nil
+    for i, item in ipairs(list) do
+        if type(item) == "table" and item[key] == targetValue then
+            foundIndex = i
+            break
+        elseif item == targetValue then
+            foundIndex = i
+            break
+        end
+    end
+
+    if foundIndex then
+        table.remove(list, foundIndex)
+        self:_processChange(player, path, list)
+    end
+end
+
+function DataSystem:ListMove(player: Player, fromPath: string, toPath: string, key: string, targetValue: any)
+    local listFrom = self:Get(player, fromPath)
+    if not listFrom then return false end
+
+    local itemToMove = nil
+    for i, v in ipairs(listFrom) do
+        if (type(v) == "table" and v[key] == targetValue) or v == targetValue then
+            itemToMove = v
+            table.remove(listFrom, i)
+            break
+        end
+    end
+
+    if itemToMove then
+        self:ListAdd(player, toPath, itemToMove)
+        self:_processChange(player, fromPath, listFrom) 
+        return true
+    end
+    return false
+end
+
+function DataSystem:ListHas(player: Player, path: string, key: string, targetValue: any): boolean
+    local list = self:Get(player, path)
+    if not list or type(list) ~= "table" then return false end
+
+    for _, item in ipairs(list) do
+        if (type(item) == "table" and item[key] == targetValue) or item == targetValue then
+            return true
+        end
+    end
+    return false
+end
+
 function DataSystem:_processChange(player: Player, path: string, newValue: any)
     local id = tostring(player.UserId)
     local profile = DataSystem.Profiles[id]
@@ -139,7 +194,6 @@ function DataSystem:_processChange(player: Player, path: string, newValue: any)
         if debugFolder then ValueMirror.Sync(debugFolder, profile.Data) end
     end
     
-    -- Notifica o cliente da mudança específica
     Network.FireClient(player, "UpdateState", path, newValue)
 end
 

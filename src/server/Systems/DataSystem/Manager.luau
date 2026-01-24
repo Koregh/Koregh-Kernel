@@ -28,4 +28,18 @@ function Manager.UpdateAsync(player: Player, transformFunc: (any) -> any)
     return success, result
 end
 
+
+function Manager.WipeDataAsync(userId: number)
+    local key = "Player_" .. userId
+    local success, err = pcall(function()
+        _store:RemoveAsync(key)
+    end)
+    
+    if not success then
+        warn(`[Manager] Erro ao deletar dados do UserId {userId}: {err}`)
+    end
+    
+    return success
+end
+
 return Manager

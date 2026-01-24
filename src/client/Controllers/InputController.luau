@@ -12,7 +12,6 @@ local Logger: any = nil
 InputController.ActionStarted = Signal.new() 
 InputController.ActionEnded = Signal.new()  
 
--- Mapeamento dinâmico
 local _actionMap: {[string]: {Enum.KeyCode | Enum.UserInputType}} = {}
 local _activeActions: {[string]: number} = {}
 
@@ -20,7 +19,6 @@ function InputController._setLogger(newLogger: any)
     Logger = newLogger
 end
 
--- [API DE REGISTRO] - Registre suas teclas por fora
 function InputController.BindAction(actionName: string, keys: {Enum.KeyCode | Enum.UserInputType})
     _actionMap[actionName] = keys
 end
@@ -33,7 +31,6 @@ function InputController.OnInit()
     UserInputService.InputBegan:Connect(InputController._handleInput)
     UserInputService.InputEnded:Connect(InputController._handleInput)
     
-    -- Exemplo de registros iniciais (podem ser feitos por fora também)
     InputController.BindAction("Jump", {Enum.KeyCode.Space, Enum.KeyCode.ButtonA})
     InputController.BindAction("Attack", {Enum.UserInputType.MouseButton1, Enum.KeyCode.ButtonR2})
     
@@ -48,7 +45,6 @@ function InputController._handleInput(input: InputObject, processed: boolean)
             if input.KeyCode == key or input.UserInputType == key then
                 
                 if input.UserInputState == Enum.UserInputState.Begin then
-                    -- CHECAGEM AUTOMÁTICA: Se o CharacterController não deixar, o input morre aqui
                     if not Character.CanPerform(actionName) then 
                         if Logger then Logger.debug("Input", `Ação {actionName} bloqueada pelo CharacterController`) end
                         return 
