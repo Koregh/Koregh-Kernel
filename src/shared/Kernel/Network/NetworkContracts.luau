@@ -1,19 +1,20 @@
 --!strict
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Guard = require(ReplicatedStorage.Shared.Kernel.Security.Guard)
+local NetworkContracts = {}
+local _contracts: { [string]: { (any) -> (boolean, string?) } } = {}
 
-local NetworkContracts = {
-    
-    ["AttackRequest"] = {
-        [1] = Guard.String,              
-        [2] = Guard.Number,              
-        [3] = Guard.Instance("Model"),   
-    },
-    
-    ["EquipItem"] = {
-        [1] = Guard.Number,              
-        [2] = Guard.String,              
-    }
-}
+function NetworkContracts.Add(channelName: string, schema: { (any) -> (boolean, string?) })
+    if _contracts[channelName] then
+       return
+    end
+    _contracts[channelName] = schema
+end
+
+function NetworkContracts.Get(channelName: string)
+    return _contracts[channelName]
+end
+
+function NetworkContracts.Remove(channelName: string)
+    _contracts[channelName] = nil
+end
 
 return NetworkContracts

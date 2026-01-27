@@ -64,6 +64,37 @@ function Kernel.warn(tag: string, msg: string)
     Logger.warn(tag, msg)
 end
 
+-- Adicione esta função antes do metatable Proxy
+function Kernel.append(name: string, system: any)
+    if not name or not system then
+        Logger.error("Kernel", "Tentativa de registrar sistema inválido (faltando nome ou tabela).")
+        return
+    end
+
+    -- Registra no Registry
+    Registry:registerSystem(name, system)
+    
+    -- Se o Kernel já deu Start, precisamos inicializar esse sistema avulso agora
+    -- (Isso torna seu Kernel dinâmico, aceitando sistemas até depois do Bootstrap)
+    if Lifecycle.isInitialized() then -- Supondo que você tenha esse check no Lifecycle
+        if type(system) == "table" and system.Init then
+            local ok, err = pcall(system.Init)
+            if not ok then Logger.error("Kernel", "Erro no Init avulso de " .. name .. ": " .. err) end
+        end
+    end
+    
+    if Lifecycle.isStarted() then
+        if type(system) == "table" and system.Start then
+            task.spawn(function()
+                local ok, err = pcall(system.Start)
+                if not ok then Logger.error("Kernel", "Erro no Start avulso de " .. name .. ": " .. err) end
+            end)
+        end
+    end
+
+    Logger.info("Kernel", "Sistema avulso registrado: " .. name)
+end
+
 local Proxy = setmetatable({} :: any, {
     __index = Kernel,
     __newindex = function(_, key)

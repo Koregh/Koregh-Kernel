@@ -12,6 +12,7 @@ local _isStarted = false
 
 type ManagedSystem = Registry.ManagedSystem
 
+
 function Lifecycle.init()
     if _isInitialized then 
         Logger.warn("Lifecycle", "Tentativa de re-inicialização bloqueada.")
@@ -82,6 +83,14 @@ end
 
 function Lifecycle.isReady(): boolean
     return _isInitialized and _isStarted
+end
+
+function Lifecycle.isInitialized(): boolean
+    return _isInitialized
+end
+
+function Lifecycle.isStarted(): boolean
+    return _isStarted
 end
 
 return table.freeze(Lifecycle)

@@ -14,7 +14,7 @@ local Promise = require(Utils.Promise)
 
 type ChannelEntry = {
 	Callback: (...any) -> (),
-	Schema: Guard.Schema?
+	Schema: {[number]: any}?
 }
 
 local NetworkKernel = {}
@@ -31,7 +31,6 @@ local MAX_STRING_LEN = 1024
 local RATE_LIMIT_PER_SEC = 25 
 local _playerRateLimits: {[Player]: {LastReset: number, Count: number}} = {}
 
--- [HELPERS]
 local function isComplex(...: any): boolean
 	for i = 1, select("#", ...) do
 		local v = select(i, ...)
@@ -63,7 +62,6 @@ local function isRateLimited(player: Player): boolean
 	return data.Count > RATE_LIMIT_PER_SEC
 end
 
--- [CORE]
 function NetworkKernel.Init(loggerModule: any?)
 	Logger = loggerModule
 	
@@ -83,7 +81,6 @@ function NetworkKernel.Init(loggerModule: any?)
 
 		game.Players.PlayerRemoving:Connect(function(p) _playerRateLimits[p] = nil end)
 
-		-- RECOLOCADO: Handler de Invoke do Servidor
 		NetworkKernel.RegisterChannel("__INVOKE__", function(player: Player, internalChannel: string, id: number, ...: any)
 			local target = _channels[internalChannel]
 			if target then
@@ -104,7 +101,6 @@ function NetworkKernel.Init(loggerModule: any?)
 			end
 		end)
 
-		-- RECOLOCADO: Handler de Resposta do Cliente
 		NetworkKernel.RegisterChannel("__RESPONSE__", function(id: number, ...: any)
 			local signal = _pendingRequests[id]
 			if signal then signal:Fire(...) end
@@ -126,11 +122,10 @@ function NetworkKernel.AddMiddleware(fn: (player: Player?, channel: string, args
 	table.insert(_middlewares, fn)
 end
 
-function NetworkKernel.RegisterChannel(name: string, callback: (...any) -> (), schema: Guard.Schema?)
+function NetworkKernel.RegisterChannel(name: string, callback: (...any) -> (), schema: {[number]: any}?)
 	_channels[name] = { Callback = callback, Schema = schema }
 end
 
--- [PACKING]
 function NetworkKernel.Pack(...: any): any
 	if isComplex(...) then
 		local args = {...}
@@ -175,7 +170,6 @@ function NetworkKernel.Unpack(payload: any): {any}
 	return args
 end
 
--- [EVENT ROUTING]
 function NetworkKernel._onEvent(player: Player?, channelName: string, payload: any)
 	local channel = _channels[channelName]
 	if not channel then return end
@@ -187,7 +181,7 @@ function NetworkKernel._onEvent(player: Player?, channelName: string, payload: a
 		if not ok or result == false then return end
 	end
 
-	local schema = channel.Schema or Contracts[channelName]
+	local schema = channel.Schema or Contracts.Get(channelName)
 	if schema then
 		local ok, err = Guard.Check(args, schema)
 		if not ok then 
@@ -204,9 +198,19 @@ function NetworkKernel._onEvent(player: Player?, channelName: string, payload: a
 	end
 end
 
--- [API]
 function NetworkKernel.Send(channelName: string, ...: any)
-	table.insert(_outboundQueue, {channelName, NetworkKernel.Pack(...)})
+	local args = {...}
+	local schema = Contracts.Get(channelName)
+	
+	if schema then
+		local ok, err = Guard.Check(args, schema)
+		if not ok then
+			if Logger then Logger:Warn(`[CLIENT GUARD] Bloqueado envio para {channelName}: {err}`) end
+			return
+		end
+	end
+
+	table.insert(_outboundQueue, {channelName, NetworkKernel.Pack(table.unpack(args))})
 end
 
 function NetworkKernel.Invoke(channelName: string, ...: any): ...any

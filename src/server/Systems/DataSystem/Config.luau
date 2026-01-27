@@ -6,7 +6,7 @@ local Config = {
 	
 	TEMPLATE = {
 		Stats = {
-			Level = 1,
+			Wallet = 0,
 			Experience = 0,
 			Gold = 0,
 			Gems = 0,
